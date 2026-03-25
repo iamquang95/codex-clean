@@ -5,32 +5,39 @@ mod scan;
 mod ui;
 
 use anyhow::Result;
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::prelude::*;
+use std::io;
 
 fn main() -> Result<()> {
+    // Set up panic hook to restore terminal
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stderr(), LeaveAlternateScreen);
+        original_hook(panic_info);
+    }));
+
+    // Scan worktrees
     let worktrees = scan::scan_worktrees()?;
 
-    // Phase 1: just print to stdout for validation
-    println!("Found {} worktrees:\n", worktrees.len());
-    for wt in &worktrees {
-        println!(
-            "  {} | {:12} | {:20} | {:>8} ({:>8} artifacts) | {} | {}",
-            wt.codex_id,
-            wt.project_name,
-            wt.display_branch(),
-            model::WorktreeInfo::display_size(wt.total_size),
-            model::WorktreeInfo::display_size(wt.artifact_size),
-            wt.display_updated_at(),
-            wt.display_thread(),
-        );
-    }
+    // Set up terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    let total: u64 = worktrees.iter().map(|w| w.total_size).sum();
-    let total_artifacts: u64 = worktrees.iter().map(|w| w.artifact_size).sum();
-    println!(
-        "\nTotal: {} ({} artifacts)",
-        model::WorktreeInfo::display_size(total),
-        model::WorktreeInfo::display_size(total_artifacts),
-    );
+    // Run app
+    let mut app = app::App::new(worktrees);
+    let result = app.run(&mut terminal);
 
-    Ok(())
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+
+    result
 }

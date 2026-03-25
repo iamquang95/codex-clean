@@ -18,23 +18,55 @@ pub enum PendingAction {
     DeleteWorktrees,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortField {
+    Size,
+    Name,
+    Updated,
+    Artifacts,
+}
+
+impl SortField {
+    fn next(self) -> Self {
+        match self {
+            Self::Size => Self::Name,
+            Self::Name => Self::Artifacts,
+            Self::Artifacts => Self::Updated,
+            Self::Updated => Self::Size,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Size => "Size",
+            Self::Name => "Name",
+            Self::Artifacts => "Artifacts",
+            Self::Updated => "Updated",
+        }
+    }
+}
+
 pub struct App {
     pub worktrees: Vec<WorktreeInfo>,
     pub table_index: usize,
     pub mode: AppMode,
     pub message: Option<(String, Instant)>,
     pub should_quit: bool,
+    pub sort_field: SortField,
 }
 
 impl App {
     pub fn new(worktrees: Vec<WorktreeInfo>) -> Self {
-        Self {
+        let mut app = Self {
             worktrees,
             table_index: 0,
             mode: AppMode::Normal,
             message: None,
             should_quit: false,
-        }
+            sort_field: SortField::Size,
+        };
+        app.apply_sort();
+        app
     }
 
     pub fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
@@ -89,6 +121,9 @@ impl App {
                 } else {
                     self.flash("No worktrees selected. Use [Space] to select.");
                 }
+            }
+            KeyCode::Char('s') => {
+                self.cycle_sort();
             }
             KeyCode::Char('r') => {
                 self.rescan();
@@ -224,10 +259,32 @@ impl App {
         self.message = Some((msg.into(), Instant::now()));
     }
 
+    fn cycle_sort(&mut self) {
+        self.sort_field = self.sort_field.next();
+        self.apply_sort();
+        self.flash(format!("Sorted by {}", self.sort_field.label()));
+    }
+
+    fn apply_sort(&mut self) {
+        match self.sort_field {
+            SortField::Size => self.worktrees.sort_by(|a, b| b.total_size.cmp(&a.total_size)),
+            SortField::Name => self.worktrees.sort_by(|a, b| a.project_name.cmp(&b.project_name)),
+            SortField::Artifacts => self
+                .worktrees
+                .sort_by(|a, b| b.artifact_size.cmp(&a.artifact_size)),
+            SortField::Updated => self.worktrees.sort_by(|a, b| {
+                let a_ts = a.updated_at.as_deref().unwrap_or("");
+                let b_ts = b.updated_at.as_deref().unwrap_or("");
+                b_ts.cmp(a_ts)
+            }),
+        }
+    }
+
     fn rescan(&mut self) {
         match crate::scan::scan_worktrees() {
             Ok(worktrees) => {
                 self.worktrees = worktrees;
+                self.apply_sort();
                 if self.table_index >= self.worktrees.len() {
                     self.table_index = self.worktrees.len().saturating_sub(1);
                 }

@@ -29,10 +29,11 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let selected = app.selected_count();
 
     let mut info = format!(
-        " {} worktrees  |  Total: {}  |  Artifacts: {}",
+        " {} worktrees  |  Total: {}  |  Artifacts: {}  |  Sort: {}",
         app.worktrees.len(),
         WorktreeInfo::display_size(total),
         WorktreeInfo::display_size(total_artifacts),
+        app.sort_field.label(),
     );
     if selected > 0 {
         info.push_str(&format!("  |  Selected: {selected}"));

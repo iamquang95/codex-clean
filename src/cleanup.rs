@@ -64,3 +64,126 @@ pub fn delete_worktree(wt: &WorktreeInfo) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn make_worktree(dir: &std::path::Path, project_type: ProjectType) -> WorktreeInfo {
+        WorktreeInfo {
+            codex_id: "test".to_string(),
+            path: dir.to_path_buf(),
+            project_name: "testproject".to_string(),
+            project_path: dir.to_path_buf(),
+            git_worktree_path: None,
+            branch: None,
+            thread_id: None,
+            thread_name: None,
+            updated_at: None,
+            total_size: 0,
+            artifact_size: 0,
+            project_type,
+            selected: false,
+        }
+    }
+
+    #[test]
+    fn test_clean_rust_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("debug_bin"), vec![0u8; 4096]).unwrap();
+
+        let wt = make_worktree(dir.path(), ProjectType::Rust);
+        let freed = clean_artifacts(&wt).unwrap();
+        assert!(freed >= 4096);
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn test_clean_node_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let nm = dir.path().join("node_modules");
+        fs::create_dir(&nm).unwrap();
+        fs::write(nm.join("dep.js"), vec![0u8; 2048]).unwrap();
+
+        let wt = make_worktree(dir.path(), ProjectType::Node);
+        let freed = clean_artifacts(&wt).unwrap();
+        assert!(freed >= 2048);
+        assert!(!nm.exists());
+    }
+
+    #[test]
+    fn test_clean_python_pycache() {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path().join("pkg");
+        fs::create_dir(&pkg).unwrap();
+        let cache = pkg.join("__pycache__");
+        fs::create_dir(&cache).unwrap();
+        fs::write(cache.join("mod.pyc"), vec![0u8; 512]).unwrap();
+
+        let wt = make_worktree(dir.path(), ProjectType::Python);
+        let freed = clean_artifacts(&wt).unwrap();
+        assert!(freed >= 512);
+        assert!(!cache.exists());
+    }
+
+    #[test]
+    fn test_clean_go_vendor() {
+        let dir = tempfile::tempdir().unwrap();
+        let vendor = dir.path().join("vendor");
+        fs::create_dir(&vendor).unwrap();
+        fs::write(vendor.join("dep.go"), vec![0u8; 1024]).unwrap();
+
+        let wt = make_worktree(dir.path(), ProjectType::Go);
+        let freed = clean_artifacts(&wt).unwrap();
+        assert!(freed >= 1024);
+        assert!(!vendor.exists());
+    }
+
+    #[test]
+    fn test_clean_no_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt = make_worktree(dir.path(), ProjectType::Rust);
+        let freed = clean_artifacts(&wt).unwrap();
+        assert_eq!(freed, 0);
+    }
+
+    #[test]
+    fn test_delete_worktree() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt_path = dir.path().join("ab12");
+        fs::create_dir(&wt_path).unwrap();
+        fs::write(wt_path.join("file"), "data").unwrap();
+
+        // Also create a mock git worktree metadata dir
+        let git_wt = dir.path().join("git_worktree_meta");
+        fs::create_dir(&git_wt).unwrap();
+        fs::write(git_wt.join("HEAD"), "ref: refs/heads/main").unwrap();
+
+        let wt = WorktreeInfo {
+            path: wt_path.clone(),
+            git_worktree_path: Some(git_wt.clone()),
+            ..make_worktree(&wt_path, ProjectType::Unknown)
+        };
+
+        delete_worktree(&wt).unwrap();
+        assert!(!wt_path.exists());
+        assert!(!git_wt.exists());
+    }
+
+    #[test]
+    fn test_delete_worktree_no_git_meta() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt_path = dir.path().join("cd34");
+        fs::create_dir(&wt_path).unwrap();
+
+        let wt = WorktreeInfo {
+            path: wt_path.clone(),
+            git_worktree_path: None,
+            ..make_worktree(&wt_path, ProjectType::Unknown)
+        };
+
+        delete_worktree(&wt).unwrap();
+        assert!(!wt_path.exists());
+    }
+}

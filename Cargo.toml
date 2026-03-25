@@ -5,6 +5,7 @@ edition = "2021"
 description = "A TUI tool for visualizing and cleaning up Codex worktrees"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/iamquang95/codex-clean"
 keywords = ["codex", "worktree", "tui", "cleanup"]
 categories = ["command-line-utilities"]
 

@@ -32,7 +32,7 @@ Codex creates git worktrees in `~/.codex/worktrees/` for each thread. These accu
 ### From source
 
 ```sh
-git clone https://github.com/user/codex-clean.git
+git clone https://github.com/iamquang95/codex-clean.git
 cd codex-clean
 cargo install --path .
 ```

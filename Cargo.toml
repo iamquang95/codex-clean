@@ -2,6 +2,11 @@
 name = "worktree-cleanup"
 version = "0.1.0"
 edition = "2021"
+description = "A TUI tool for visualizing and cleaning up Codex worktrees"
+license = "MIT"
+readme = "README.md"
+keywords = ["codex", "worktree", "tui", "cleanup"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 ratatui = "0.29"

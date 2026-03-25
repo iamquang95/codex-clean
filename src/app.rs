@@ -3,6 +3,7 @@ use crate::ui;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -53,10 +54,11 @@ pub struct App {
     pub message: Option<(String, Instant)>,
     pub should_quit: bool,
     pub sort_field: SortField,
+    pub codex_home: PathBuf,
 }
 
 impl App {
-    pub fn new(worktrees: Vec<WorktreeInfo>) -> Self {
+    pub fn new(worktrees: Vec<WorktreeInfo>, codex_home: PathBuf) -> Self {
         let mut app = Self {
             worktrees,
             table_index: 0,
@@ -64,6 +66,7 @@ impl App {
             message: None,
             should_quit: false,
             sort_field: SortField::Size,
+            codex_home,
         };
         app.apply_sort();
         app
@@ -281,7 +284,7 @@ impl App {
     }
 
     fn rescan(&mut self) {
-        match crate::scan::scan_worktrees() {
+        match crate::scan::scan_worktrees(&self.codex_home) {
             Ok(worktrees) => {
                 self.worktrees = worktrees;
                 self.apply_sort();

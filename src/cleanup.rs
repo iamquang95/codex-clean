@@ -32,8 +32,12 @@ fn remove_recursive(path: &std::path::Path, target_name: &str) -> Result<u64> {
         let p = entry.path();
         if p.is_dir() {
             if p.file_name().map(|n| n == target_name).unwrap_or(false) {
-                freed += crate::scan::dir_size(&p);
-                let _ = fs::remove_dir_all(&p);
+                let size = crate::scan::dir_size(&p);
+                match fs::remove_dir_all(&p) {
+                    Ok(()) => freed += size,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e).with_context(|| format!("Failed to remove {}", p.display())),
+                }
             } else {
                 freed += remove_recursive(&p, target_name)?;
             }

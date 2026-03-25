@@ -5,8 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub fn scan_worktrees() -> Result<Vec<WorktreeInfo>> {
-    scan_worktrees_in(default_worktrees_dir()?, default_session_index_path()?)
+pub fn scan_worktrees(codex_home: &Path) -> Result<Vec<WorktreeInfo>> {
+    let worktrees_dir = codex_home.join("worktrees");
+    let session_index_path = codex_home.join("session_index.jsonl");
+    scan_worktrees_in(worktrees_dir, session_index_path)
 }
 
 pub fn scan_worktrees_in(
@@ -15,15 +17,45 @@ pub fn scan_worktrees_in(
 ) -> Result<Vec<WorktreeInfo>> {
     let sessions = load_session_index(&session_index_path);
 
-    let entries: Vec<_> = fs::read_dir(&worktrees_dir)
-        .with_context(|| format!("Cannot read {}", worktrees_dir.display()))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
-        .collect();
+    let entries: Vec<_> = match fs::read_dir(&worktrees_dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("Cannot read {}", worktrees_dir.display())),
+    };
 
     let mut worktrees: Vec<WorktreeInfo> = entries
         .par_iter()
-        .filter_map(|entry| scan_single_worktree(entry.path(), &sessions).ok())
+        .map(|entry| {
+            let path = entry.path();
+            match scan_single_worktree(path.clone(), &sessions) {
+                Ok(wt) => wt,
+                Err(e) => {
+                    let codex_id = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    WorktreeInfo {
+                        codex_id,
+                        path: path.clone(),
+                        project_name: format!("(error: {e})"),
+                        project_path: path,
+                        git_worktree_path: None,
+                        branch: None,
+                        thread_id: None,
+                        thread_name: None,
+                        updated_at: None,
+                        total_size: 0,
+                        artifact_size: 0,
+                        project_type: ProjectType::Unknown,
+                        selected: false,
+                    }
+                }
+            }
+        })
         .collect();
 
     worktrees.sort_by(|a, b| b.total_size.cmp(&a.total_size));
@@ -156,7 +188,6 @@ pub fn compute_sizes(project_path: &Path, project_type: &ProjectType) -> (u64, u
     let mut total_size: u64 = 0;
     let mut artifact_size: u64 = 0;
 
-    // Single-pass walk: accumulate total and artifact sizes together
     compute_sizes_recursive(project_path, &artifact_names, true, &mut total_size, &mut artifact_size);
     (total_size, artifact_size)
 }
@@ -172,10 +203,19 @@ fn compute_sizes_recursive(
         return;
     };
     for entry in entries.filter_map(|e| e.ok()) {
-        let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
-        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        // Use file_type() which does NOT follow symlinks — avoids
+        // escaping the project tree and infinite loops on symlink cycles
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
 
-        if is_dir {
+        if ft.is_symlink() {
+            // Count the symlink's own size but never descend into it
+            let len = fs::symlink_metadata(entry.path())
+                .map(|m| m.len())
+                .unwrap_or(0);
+            *total += len;
+        } else if ft.is_dir() {
             let name = entry.file_name();
             let is_artifact = check_artifacts
                 && artifact_names.iter().any(|a| *a == name.to_string_lossy().as_ref());
@@ -188,39 +228,36 @@ fn compute_sizes_recursive(
                 compute_sizes_recursive(&entry.path(), artifact_names, check_artifacts, total, artifacts);
             }
         } else {
+            let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
             *total += len;
         }
     }
 }
 
+/// Compute the size of a directory tree, skipping symlinked directories
+/// to avoid escaping the tree or infinite recursion on cycles.
 pub fn dir_size(path: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(path) else {
-        return fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        return fs::symlink_metadata(path).map(|m| m.len()).unwrap_or(0);
     };
 
     entries
         .filter_map(|e| e.ok())
         .map(|entry| {
-            let Ok(meta) = entry.metadata().or_else(|_| fs::symlink_metadata(entry.path())) else {
+            let Ok(ft) = entry.file_type() else {
                 return 0;
             };
-            if meta.is_dir() {
+            if ft.is_symlink() {
+                fs::symlink_metadata(entry.path())
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            } else if ft.is_dir() {
                 dir_size(&entry.path())
             } else {
-                meta.len()
+                entry.metadata().map(|m| m.len()).unwrap_or(0)
             }
         })
         .sum()
-}
-
-fn default_worktrees_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Cannot determine home directory")?;
-    Ok(home.join(".codex").join("worktrees"))
-}
-
-fn default_session_index_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Cannot determine home directory")?;
-    Ok(home.join(".codex").join("session_index.jsonl"))
 }
 
 fn load_session_index(path: &Path) -> HashMap<String, SessionRecord> {
@@ -244,6 +281,8 @@ fn load_session_index(path: &Path) -> HashMap<String, SessionRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs as unix_fs;
 
     #[test]
     fn test_detect_project_type_rust() {
@@ -301,6 +340,46 @@ mod tests {
         assert_eq!(size, 11);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_skips_symlinked_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let real_dir = dir.path().join("real");
+        fs::create_dir(&real_dir).unwrap();
+        fs::write(real_dir.join("big.bin"), vec![0u8; 8192]).unwrap();
+
+        // Symlink real -> linked (should not be followed)
+        unix_fs::symlink(&real_dir, dir.path().join("linked")).unwrap();
+
+        let size = dir_size(dir.path());
+        // Should count files in real/ but NOT double-count via linked/
+        assert!(size < 8192 * 2, "symlinked dir was followed: size={size}");
+        assert!(size >= 8192, "real dir was not counted: size={size}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_handles_symlink_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("file.txt"), "data").unwrap();
+        // Create a symlink cycle: dir/loop -> dir
+        unix_fs::symlink(dir.path(), dir.path().join("loop")).unwrap();
+
+        // Should complete without infinite recursion
+        let size = dir_size(dir.path());
+        assert!(size >= 4); // at least "data"
+    }
+
+    #[test]
+    fn test_scan_worktrees_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does_not_exist");
+        let session_file = dir.path().join("sessions.jsonl");
+        fs::write(&session_file, "").unwrap();
+        let result = scan_worktrees_in(missing, session_file).unwrap();
+        assert!(result.is_empty());
+    }
+
     #[test]
     fn test_scan_worktrees_in_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
@@ -353,6 +432,28 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].project_name, "(empty)");
         assert!(result[0].is_empty());
+    }
+
+    #[test]
+    fn test_scan_unreadable_worktree_shows_error() {
+        // Simulate a worktree entry that contains a non-directory child
+        // scan_single_worktree will still succeed but show (empty)
+        let dir = tempfile::tempdir().unwrap();
+        let worktrees_dir = dir.path().join("worktrees");
+        fs::create_dir(&worktrees_dir).unwrap();
+
+        let wt_dir = worktrees_dir.join("bad1");
+        fs::create_dir(&wt_dir).unwrap();
+        // Only a file inside, no project subdir
+        fs::write(wt_dir.join("stale_file"), "").unwrap();
+
+        let session_file = dir.path().join("sessions.jsonl");
+        fs::write(&session_file, "").unwrap();
+
+        let result = scan_worktrees_in(worktrees_dir, session_file).unwrap();
+        assert_eq!(result.len(), 1);
+        // Should still appear in results, not be silently dropped
+        assert_eq!(result[0].codex_id, "bad1");
     }
 
     #[test]

@@ -18,7 +18,7 @@ fn resolve_codex_home() -> Result<PathBuf> {
 
     // --help / -h
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!("Usage: worktree-cleanup [--codex-home <path>]");
+        eprintln!("Usage: codex-clean [--codex-home <path>]");
         eprintln!();
         eprintln!("Options:");
         eprintln!("  --codex-home <path>  Path to Codex home directory");

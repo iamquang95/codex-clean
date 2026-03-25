@@ -1,4 +1,4 @@
-# worktree-cleanup
+# codex-clean
 
 A fast TUI tool for visualizing and cleaning up [Codex](https://openai.com/codex) worktrees.
 
@@ -32,8 +32,8 @@ Codex creates git worktrees in `~/.codex/worktrees/` for each thread. These accu
 ### From source
 
 ```sh
-git clone https://github.com/user/worktree-cleanup.git
-cd worktree-cleanup
+git clone https://github.com/user/codex-clean.git
+cd codex-clean
 cargo install --path .
 ```
 
@@ -41,13 +41,13 @@ cargo install --path .
 
 ```sh
 cargo build --release
-# Binary at ./target/release/worktree-cleanup (~800KB)
+# Binary at ./target/release/codex-clean (~800KB)
 ```
 
 ## Usage
 
 ```sh
-worktree-cleanup
+codex-clean
 ```
 
 The TUI launches and scans `~/.codex/worktrees/` automatically.
@@ -58,11 +58,11 @@ By default, the tool looks for worktrees in `~/.codex/`. You can override this:
 
 ```sh
 # Via CLI flag
-worktree-cleanup --codex-home /path/to/codex
+codex-clean --codex-home /path/to/codex
 
 # Via environment variable
 export CODEX_HOME=/path/to/codex
-worktree-cleanup
+codex-clean
 ```
 
 Resolution order: `--codex-home` flag > `$CODEX_HOME` env var > `~/.codex`.

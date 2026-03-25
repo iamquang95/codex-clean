@@ -1,5 +1,5 @@
 [package]
-name = "worktree-cleanup"
+name = "codex-clean"
 version = "0.1.0"
 edition = "2021"
 description = "A TUI tool for visualizing and cleaning up Codex worktrees"

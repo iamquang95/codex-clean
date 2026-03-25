@@ -1,36 +1,29 @@
-use crate::model::{ProjectType, WorktreeInfo};
+use crate::model::WorktreeInfo;
 use anyhow::{Context, Result};
 use std::fs;
 
 pub fn clean_artifacts(wt: &WorktreeInfo) -> Result<u64> {
-    let artifact_dirs: Vec<&str> = match wt.project_type {
-        ProjectType::Rust => vec!["target"],
-        ProjectType::Go => vec!["vendor"],
-        ProjectType::Node => vec!["node_modules"],
-        ProjectType::Python => vec![".venv"],
-        ProjectType::Unknown => vec!["target", "node_modules", ".venv", "build", "dist"],
-    };
-
     let mut total_freed: u64 = 0;
-    for dir_name in artifact_dirs {
+    for dir_name in wt.project_type.artifact_dirs() {
+        // __pycache__ can appear at any nesting level
+        if *dir_name == "__pycache__" {
+            total_freed += remove_recursive(&wt.project_path, "__pycache__")?;
+            continue;
+        }
         let path = wt.project_path.join(dir_name);
-        if path.exists() && path.is_dir() {
-            let size = crate::scan::dir_size(&path);
-            fs::remove_dir_all(&path)
-                .with_context(|| format!("Failed to remove {}", path.display()))?;
-            total_freed += size;
+        let size = crate::scan::dir_size(&path);
+        if size > 0 {
+            match fs::remove_dir_all(&path) {
+                Ok(()) => total_freed += size,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("Failed to remove {}", path.display())),
+            }
         }
     }
-
-    // Python: also recursively find and remove __pycache__ dirs
-    if wt.project_type == ProjectType::Python {
-        total_freed += remove_pycache_recursive(&wt.project_path)?;
-    }
-
     Ok(total_freed)
 }
 
-fn remove_pycache_recursive(path: &std::path::Path) -> Result<u64> {
+fn remove_recursive(path: &std::path::Path, target_name: &str) -> Result<u64> {
     let mut freed = 0;
     let Ok(entries) = fs::read_dir(path) else {
         return Ok(0);
@@ -38,11 +31,11 @@ fn remove_pycache_recursive(path: &std::path::Path) -> Result<u64> {
     for entry in entries.filter_map(|e| e.ok()) {
         let p = entry.path();
         if p.is_dir() {
-            if p.file_name().map(|n| n == "__pycache__").unwrap_or(false) {
+            if p.file_name().map(|n| n == target_name).unwrap_or(false) {
                 freed += crate::scan::dir_size(&p);
-                fs::remove_dir_all(&p)?;
+                let _ = fs::remove_dir_all(&p);
             } else {
-                freed += remove_pycache_recursive(&p)?;
+                freed += remove_recursive(&p, target_name)?;
             }
         }
     }
@@ -50,15 +43,14 @@ fn remove_pycache_recursive(path: &std::path::Path) -> Result<u64> {
 }
 
 pub fn delete_worktree(wt: &WorktreeInfo) -> Result<()> {
-    // Remove the git worktree metadata dir if it exists
     if let Some(git_wt_path) = &wt.git_worktree_path {
-        if git_wt_path.exists() {
-            fs::remove_dir_all(git_wt_path)
-                .with_context(|| format!("Failed to remove git worktree {}", git_wt_path.display()))?;
+        match fs::remove_dir_all(git_wt_path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("Failed to remove git worktree {}", git_wt_path.display())),
         }
     }
 
-    // Remove the codex worktree directory
     fs::remove_dir_all(&wt.path)
         .with_context(|| format!("Failed to remove {}", wt.path.display()))?;
 
@@ -68,6 +60,8 @@ pub fn delete_worktree(wt: &WorktreeInfo) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::ProjectType;
+
     fn make_worktree(dir: &std::path::Path, project_type: ProjectType) -> WorktreeInfo {
         WorktreeInfo {
             codex_id: "test".to_string(),
@@ -155,7 +149,6 @@ mod tests {
         fs::create_dir(&wt_path).unwrap();
         fs::write(wt_path.join("file"), "data").unwrap();
 
-        // Also create a mock git worktree metadata dir
         let git_wt = dir.path().join("git_worktree_meta");
         fs::create_dir(&git_wt).unwrap();
         fs::write(git_wt.join("HEAD"), "ref: refs/heads/main").unwrap();

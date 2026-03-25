@@ -1,4 +1,4 @@
-use crate::model::WorktreeInfo;
+use crate::model::{self, WorktreeInfo};
 use crate::ui;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -179,14 +179,14 @@ impl App {
                     self.flash(format!(
                         "Cleaned {} worktrees, freed {}. {} errors.",
                         selected.len() - errors,
-                        WorktreeInfo::display_size(total_freed),
+                        model::format_size(total_freed),
                         errors,
                     ));
                 } else {
                     self.flash(format!(
                         "Cleaned {} worktrees, freed {}.",
                         selected.len(),
-                        WorktreeInfo::display_size(total_freed),
+                        model::format_size(total_freed),
                     ));
                 }
                 self.rescan();

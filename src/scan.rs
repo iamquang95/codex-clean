@@ -40,7 +40,6 @@ fn scan_single_worktree(
         .to_string_lossy()
         .to_string();
 
-    // Find the project subdirectory (first child dir)
     let project_entry = fs::read_dir(&path)?
         .filter_map(|e| e.ok())
         .find(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false));
@@ -64,10 +63,7 @@ fn scan_single_worktree(
     };
 
     let project_path = project_entry.path();
-    let project_name = project_entry
-        .file_name()
-        .to_string_lossy()
-        .to_string();
+    let project_name = project_entry.file_name().to_string_lossy().to_string();
 
     let git_meta = resolve_git_metadata(&project_path);
     let project_type = detect_project_type(&project_path);
@@ -107,25 +103,21 @@ fn resolve_git_metadata(project_path: &Path) -> Option<GitMeta> {
     let git_file = project_path.join(".git");
     let content = fs::read_to_string(&git_file).ok()?;
 
-    // Parse "gitdir: /path/to/repo/.git/worktrees/name"
     let gitdir = content.trim().strip_prefix("gitdir: ")?;
     let git_worktree_path = PathBuf::from(gitdir);
 
-    // Read HEAD for branch
     let head_path = git_worktree_path.join("HEAD");
     let branch = fs::read_to_string(&head_path).ok().map(|h| {
         let h = h.trim();
         if let Some(refname) = h.strip_prefix("ref: refs/heads/") {
             refname.to_string()
         } else if h.len() >= 8 {
-            // Detached HEAD — show abbreviated SHA
             format!("({})", &h[..8])
         } else {
             h.to_string()
         }
     });
 
-    // Read codex-thread.json for thread ID
     let thread_path = git_worktree_path.join("codex-thread.json");
     let thread_id = fs::read_to_string(&thread_path)
         .ok()
@@ -160,52 +152,60 @@ pub fn detect_project_type(project_path: &Path) -> ProjectType {
 }
 
 pub fn compute_sizes(project_path: &Path, project_type: &ProjectType) -> (u64, u64) {
-    let total_size = dir_size(project_path);
+    let artifact_names: Vec<&str> = project_type.artifact_dirs().to_vec();
+    let mut total_size: u64 = 0;
+    let mut artifact_size: u64 = 0;
 
-    let artifact_dirs: Vec<&str> = match project_type {
-        ProjectType::Rust => vec!["target"],
-        ProjectType::Go => vec!["vendor"],
-        ProjectType::Node => vec!["node_modules"],
-        ProjectType::Python => vec![".venv", "__pycache__"],
-        ProjectType::Unknown => vec!["target", "node_modules", ".venv", "build", "dist"],
-    };
-
-    let artifact_size: u64 = artifact_dirs
-        .iter()
-        .map(|d| {
-            let p = project_path.join(d);
-            if p.exists() {
-                dir_size(&p)
-            } else {
-                0
-            }
-        })
-        .sum();
-
+    // Single-pass walk: accumulate total and artifact sizes together
+    compute_sizes_recursive(project_path, &artifact_names, true, &mut total_size, &mut artifact_size);
     (total_size, artifact_size)
 }
 
-pub fn dir_size(path: &Path) -> u64 {
-    walkdir(path)
+fn compute_sizes_recursive(
+    path: &Path,
+    artifact_names: &[&str],
+    check_artifacts: bool,
+    total: &mut u64,
+    artifacts: &mut u64,
+) {
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+
+        if is_dir {
+            let name = entry.file_name();
+            let is_artifact = check_artifacts
+                && artifact_names.iter().any(|a| *a == name.to_string_lossy().as_ref());
+
+            if is_artifact {
+                let size = dir_size(&entry.path());
+                *total += size;
+                *artifacts += size;
+            } else {
+                compute_sizes_recursive(&entry.path(), artifact_names, check_artifacts, total, artifacts);
+            }
+        } else {
+            *total += len;
+        }
+    }
 }
 
-fn walkdir(path: &Path) -> u64 {
+pub fn dir_size(path: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(path) else {
-        // If it's a file, return its size
         return fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     };
 
     entries
         .filter_map(|e| e.ok())
         .map(|entry| {
-            let meta = entry.metadata().unwrap_or_else(|_| {
-                // Fallback: try symlink metadata
-                fs::symlink_metadata(entry.path()).unwrap_or_else(|_| {
-                    fs::metadata(entry.path()).expect("cannot read metadata")
-                })
-            });
+            let Ok(meta) = entry.metadata().or_else(|_| fs::symlink_metadata(entry.path())) else {
+                return 0;
+            };
             if meta.is_dir() {
-                walkdir(&entry.path())
+                dir_size(&entry.path())
             } else {
                 meta.len()
             }
@@ -298,7 +298,7 @@ mod tests {
         fs::write(dir.path().join("a.txt"), "hello").unwrap();
         fs::write(dir.path().join("b.txt"), "world!").unwrap();
         let size = dir_size(dir.path());
-        assert_eq!(size, 11); // "hello" (5) + "world!" (6)
+        assert_eq!(size, 11);
     }
 
     #[test]
@@ -316,7 +316,6 @@ mod tests {
         let worktrees_dir = dir.path().join("worktrees");
         fs::create_dir(&worktrees_dir).unwrap();
 
-        // Create a mock worktree: worktrees/ab12/myproject/
         let wt_dir = worktrees_dir.join("ab12");
         fs::create_dir(&wt_dir).unwrap();
         let project_dir = wt_dir.join("myproject");
@@ -326,7 +325,6 @@ mod tests {
         fs::create_dir(&target).unwrap();
         fs::write(target.join("artifact"), vec![0u8; 2048]).unwrap();
 
-        // Create session index
         let session_file = dir.path().join("sessions.jsonl");
         fs::write(&session_file, "").unwrap();
 
@@ -345,7 +343,6 @@ mod tests {
         let worktrees_dir = dir.path().join("worktrees");
         fs::create_dir(&worktrees_dir).unwrap();
 
-        // Empty worktree dir (no project subdir)
         let wt_dir = worktrees_dir.join("f67f");
         fs::create_dir(&wt_dir).unwrap();
 

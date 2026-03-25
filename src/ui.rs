@@ -1,21 +1,20 @@
 use crate::app::{App, AppMode, PendingAction};
-use crate::model::WorktreeInfo;
+use crate::model::format_size;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::vertical([
-        Constraint::Length(3), // header
-        Constraint::Min(5),   // table
-        Constraint::Length(3), // help bar
+        Constraint::Length(3),
+        Constraint::Min(5),
+        Constraint::Length(3),
     ])
     .split(f.area());
 
     draw_header(f, app, chunks[0]);
     draw_table(f, app, chunks[1]);
-    draw_help_bar(f, app, chunks[2]);
+    draw_help_bar(f, chunks[2]);
 
-    // Overlays
     match &app.mode {
         AppMode::Detail(idx) => draw_detail_popup(f, app, *idx),
         AppMode::Confirm(action) => draw_confirm_popup(f, app, action),
@@ -31,15 +30,14 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let mut info = format!(
         " {} worktrees  |  Total: {}  |  Artifacts: {}  |  Sort: {}",
         app.worktrees.len(),
-        WorktreeInfo::display_size(total),
-        WorktreeInfo::display_size(total_artifacts),
+        format_size(total),
+        format_size(total_artifacts),
         app.sort_field.label(),
     );
     if selected > 0 {
         info.push_str(&format!("  |  Selected: {selected}"));
     }
 
-    // Flash message
     if let Some((msg, _)) = &app.message {
         info = format!(" {msg}");
     }
@@ -77,8 +75,7 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
             let sz_color = size_color(wt.total_size);
             let art_color = size_color(wt.artifact_size);
 
-            let is_current = i == app.table_index;
-            let style = if is_current {
+            let style = if i == app.table_index {
                 Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
@@ -86,12 +83,12 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
 
             Row::new(vec![
                 Cell::from(sel).style(Style::default().fg(Color::Green)),
-                Cell::from(wt.codex_id.clone()),
-                Cell::from(wt.project_name.clone()),
-                Cell::from(wt.display_branch().to_string()),
-                Cell::from(WorktreeInfo::display_size(wt.total_size))
+                Cell::from(wt.codex_id.as_str()),
+                Cell::from(wt.project_name.as_str()),
+                Cell::from(wt.display_branch()),
+                Cell::from(format_size(wt.total_size))
                     .style(Style::default().fg(sz_color)),
-                Cell::from(WorktreeInfo::display_size(wt.artifact_size))
+                Cell::from(format_size(wt.artifact_size))
                     .style(Style::default().fg(art_color)),
                 Cell::from(wt.display_updated_at()),
                 Cell::from(truncate_str(wt.display_thread(), 25)),
@@ -101,14 +98,14 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let widths = [
-        Constraint::Length(2),  // select
-        Constraint::Length(6),  // ID
-        Constraint::Length(14), // project
-        Constraint::Length(18), // branch
-        Constraint::Length(8),  // size
-        Constraint::Length(10), // artifacts
-        Constraint::Length(12), // updated
-        Constraint::Min(10),    // thread
+        Constraint::Length(2),
+        Constraint::Length(6),
+        Constraint::Length(14),
+        Constraint::Length(18),
+        Constraint::Length(8),
+        Constraint::Length(10),
+        Constraint::Length(12),
+        Constraint::Min(10),
     ];
 
     let table = Table::new(rows, widths)
@@ -123,7 +120,7 @@ fn draw_table(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(table, area);
 }
 
-fn draw_help_bar(f: &mut Frame, _app: &App, area: Rect) {
+fn draw_help_bar(f: &mut Frame, area: Rect) {
     let help = vec![
         Span::styled("[↑↓]", Style::default().fg(Color::Yellow)),
         Span::raw(" Navigate  "),
@@ -177,11 +174,11 @@ fn draw_detail_popup(f: &mut Frame, app: &App, idx: usize) {
         ]),
         Line::from(vec![
             Span::styled("Total Size:  ", Style::default().fg(Color::Yellow)),
-            Span::raw(WorktreeInfo::display_size(wt.total_size)),
+            Span::raw(format_size(wt.total_size)),
         ]),
         Line::from(vec![
             Span::styled("Artifacts:   ", Style::default().fg(Color::Yellow)),
-            Span::raw(WorktreeInfo::display_size(wt.artifact_size)),
+            Span::raw(format_size(wt.artifact_size)),
         ]),
         Line::from(vec![
             Span::styled("Updated:     ", Style::default().fg(Color::Yellow)),
@@ -252,7 +249,7 @@ fn draw_confirm_popup(f: &mut Frame, app: &App, action: &PendingAction) {
         )),
         Line::from(format!(
             "This will free approximately {}.",
-            WorktreeInfo::display_size(selected_size)
+            format_size(selected_size)
         )),
         Line::default(),
         Line::from(vec![
@@ -310,9 +307,14 @@ fn size_color(bytes: u64) -> Color {
 }
 
 fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max - 3])
+        let end = s
+            .char_indices()
+            .nth(max - 3)
+            .map(|(i, _)| i)
+            .unwrap_or(s.len());
+        format!("{}...", &s[..end])
     }
 }

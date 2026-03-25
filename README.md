@@ -15,16 +15,16 @@ Codex creates git worktrees in `~/.codex/worktrees/` for each thread. These accu
 ## Screenshot
 
 ```
-┌──────────────────────── Worktree Cleanup ────────────────────────┐
-│ 6 worktrees  |  Total: 3.3GB  |  Artifacts: 2.9GB  |  Sort: Size│
-├──┬──────┬───────────┬──────────────┬────────┬─────────┬──────────┤
-│  │ ID   │ Project   │ Branch       │ Size   │Artifact │ Thread   │
-│  │ cf52 │ my-app    │ feat/x       │ 2.2GB  │ 2.2GB   │ Fix bug  │
-│● │ e211 │ my-app    │ main         │ 697MB  │ 680MB   │ Refactor │
-│  │ 088a │ my-lib    │ (detached)   │ 11MB   │ 0B      │ (unknown)│
-├──┴──────┴───────────┴──────────────┴────────┴─────────┴──────────┤
-│ [↑↓] Navigate  [Space] Select  [c] Clean  [d] Delete  [q] Quit  │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────── codex-clean ───────────────────────────────┐
+│ 6 worktrees  |  Total: 3.3GB  |  Artifacts: 2.9GB  |  Sort: Size              │
+├──┬──────┬───────────┬──────────────┬────────┬─────────┬─────────────┬──────────┤
+│  │ ID   │ Project   │ Branch       │ Size   │Artifact │ Updated     │ Thread   │
+│  │ cf52 │ my-app    │ feat/x       │ 2.2GB  │ 2.2GB   │ 2 days ago  │ Fix bug  │
+│● │ e211 │ my-app    │ main         │ 697MB  │ 680MB   │ 1 week ago  │ Refactor │
+│  │ 088a │ my-lib    │ (detached)   │ 11MB   │ 0B      │ 3 weeks ago │ (unknown)│
+├──┴──────┴───────────┴──────────────┴────────┴─────────┴─────────────┴──────────┤
+│ [↑↓] Navigate  [Space] Select  [c] Clean  [d] Delete  [q] Quit                │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation

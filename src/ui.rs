@@ -43,7 +43,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let block = Block::default()
-        .title(" Worktree Cleanup ")
+        .title(" codex-clean ")
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));

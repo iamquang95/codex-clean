@@ -4,6 +4,15 @@ A fast TUI tool for visualizing and cleaning up [Codex](https://openai.com/codex
 
 Codex creates git worktrees in `~/.codex/worktrees/` for each thread. These accumulate over time and can consume significant disk space — especially for Rust projects with multi-GB `target/` directories. This tool lets you see what's there and reclaim space.
 
+## Quick Start
+
+```sh
+cargo install codex-clean
+codex-clean
+```
+
+That's it. The TUI launches and scans `~/.codex/worktrees/` automatically.
+
 ## Features
 
 - **Visualize** all Codex worktrees with metadata: project name, git branch, size, build artifact size, linked thread name, and last update time
@@ -28,6 +37,12 @@ Codex creates git worktrees in `~/.codex/worktrees/` for each thread. These accu
 ```
 
 ## Installation
+
+### From crates.io
+
+```sh
+cargo install codex-clean
+```
 
 ### From source
 
